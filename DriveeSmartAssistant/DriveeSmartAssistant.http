@@ -1,0 +1,6 @@
+@DriveeSmartAssistant_HostAddress = http://localhost:5124
+
+GET {{DriveeSmartAssistant_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
