@@ -1,6 +1,5 @@
 ﻿using DriveeSmartAssistant.Interfaces;
 using DriveeSmartAssistant.Models;
-using DriveeSmartAssistant.Models.Mapping;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML;
 using Microsoft.ML.Data;
