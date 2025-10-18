@@ -331,83 +331,7 @@ public class RidePriceService : IRidePriceService
         return result.RecommendedPrice;
     }
 
-    public float GetUserAcceptanceProbability(UserAcceptanceInput input)
-    {
-        if (!IsModelLoaded) throw new InvalidOperationException("Модель не загружена");
-
-        var modelInput = new ModelInput
-        {
-            // Параметры поездки
-            DistanceInMeters = input.DistanceInMeters,
-            DurationInSeconds = input.DurationInSeconds,
-            DriverRating = input.DriverRating,
-            PickupInMeters = input.PickupInMeters,
-            DriverExperienceMonth = input.DriverExperienceMonth,
-            CarName = input.CarName,
-            Platform = input.Platform,
-
-            // Временные параметры
-            HourOfDay = input.HourOfDay,
-            DayOfWeek = input.DayOfWeek,
-            Month = input.Month,
-
-            // Ценовые параметры (с точки зрения пользователя)
-            PriceBidLocal = input.DriverPrice,     // Что предлагает водитель
-            PriceStartLocal = input.UserMaxPrice,  // Максимум что готов заплатить пользователь
-
-            // Остальные поля
-            UserAccepted = false,
-            DriverAccepted = false,
-            IsDone = false
-        };
-
-        var prediction = _userAcceptanceEngine.Predict(modelInput);
-
-        _logger.LogInformation($"Шанс принятия пользователем: {prediction.Probability:P2} " +
-                              $"(цена {input.DriverPrice} при максимуме {input.UserMaxPrice})");
-
-        return prediction.Probability;
-    }
-
-    public float GetDriverAcceptanceProbability(DriverAcceptanceInput input)
-    {
-        if (!IsModelLoaded) throw new InvalidOperationException("Модель не загружена");
-
-        var modelInput = new ModelInput
-        {
-            // Параметры поездки
-            DistanceInMeters = input.DistanceInMeters,
-            DurationInSeconds = input.DurationInSeconds,
-            DriverRating = input.DriverRating,
-            PickupInMeters = input.PickupInMeters,
-            DriverExperienceMonth = input.DriverExperienceMonth,
-            CarName = input.CarName,
-            Platform = input.Platform,
-
-            // Временные параметры
-            HourOfDay = input.HourOfDay,
-            DayOfWeek = input.DayOfWeek,
-            Month = input.Month,
-
-            // Ценовые параметры (с точки зрения водителя)
-            PriceBidLocal = input.DriverMinPrice,  // Минимум что готов принять водитель
-            PriceStartLocal = input.UserPrice,     // Что предлагает пользователь
-
-            // Остальные поля
-            UserAccepted = false,
-            DriverAccepted = false,
-            IsDone = false
-        };
-
-        var prediction = _driverAcceptanceEngine.Predict(modelInput);
-
-        _logger.LogInformation($"Шанс принятия водителем: {prediction.Probability:P2} " +
-                              $"(цена {input.UserPrice} при минимуме {input.DriverMinPrice})");
-
-        return prediction.Probability;
-    }
-
-    public void SaveModels(string priceModelPath, string userAcceptanceModelPath, string driverAcceptanceModelPath)
+    public void SaveModels(string priceModelPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(priceModelPath));
 
@@ -415,15 +339,13 @@ public class RidePriceService : IRidePriceService
         var tempData = _mlContext.Data.LoadFromEnumerable(new[] { new ModelInput() });
 
         _mlContext.Model.Save(_priceModel, tempData.Schema, priceModelPath);
-        _mlContext.Model.Save(_userAcceptanceModel, tempData.Schema, userAcceptanceModelPath);
-        _mlContext.Model.Save(_driverAcceptanceModel, tempData.Schema, driverAcceptanceModelPath);
 
         _logger.LogInformation("Модели сохранены");
     }
 
-    public void LoadModels(string priceModelPath, string userAcceptanceModelPath, string driverAcceptanceModelPath)
+    public void LoadModels(string priceModelPath)
     {
-        if (!File.Exists(priceModelPath) || !File.Exists(userAcceptanceModelPath) || !File.Exists(driverAcceptanceModelPath))
+        if (!File.Exists(priceModelPath))
         {
             throw new FileNotFoundException("Файлы моделей не найдены");
         }
@@ -431,8 +353,6 @@ public class RidePriceService : IRidePriceService
         var tempData = _mlContext.Data.LoadFromEnumerable(new[] { new ModelInput() });
 
         _priceModel = _mlContext.Model.Load(priceModelPath, out var priceSchema);
-        _userAcceptanceModel = _mlContext.Model.Load(userAcceptanceModelPath, out var userAcceptanceSchena);
-        _driverAcceptanceModel = _mlContext.Model.Load(driverAcceptanceModelPath, out var driverAcceptanceSchena);
 
         // Создаем PredictionEngine для загруженной модели
 

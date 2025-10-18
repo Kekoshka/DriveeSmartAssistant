@@ -11,6 +11,8 @@ builder.Services.AddSwaggerGen();
 
 // Register services
 builder.Services.AddSingleton<IRidePriceService, RidePriceService>();
+builder.Services.AddSingleton<IUserAcceptanceService, UserAcceptanceService>();
+builder.Services.AddTransient<IMainHandleService, MainHandleService>();
 
 // Configure logging
 builder.Services.AddLogging();
@@ -32,17 +34,23 @@ app.MapControllers();
 try
 {
     var ridePriceService = app.Services.GetRequiredService<IRidePriceService>();
+    var userAcceptanceService = app.Services.GetRequiredService<IUserAcceptanceService>();
 
     // Try to load pre-trained models
-    
-
     if (!ridePriceService.IsModelLoaded)
     {
         // Train new models if pre-trained not available
         ridePriceService.TrainModels("C:/Users/Kekoshka/Desktop/train.csv");
-        ridePriceService.SaveModels("Models/price_model.zip", "Models/userAcceptance_model.zip", "Models/driverAcceptance_model.zip");
+        ridePriceService.SaveModels("Models/price_model.zip");
     }
-    ridePriceService.LoadModels("Models/price_model.zip", "Models/userAcceptance_model.zip", "Models/driverAcceptance_model.zip");
+    if (!userAcceptanceService.IsModelLoaded)
+    {
+        // Train new models if pre-trained not available
+        userAcceptanceService.TrainModel("C:/Users/Kekoshka/Desktop/train.csv");
+        userAcceptanceService.SaveModel("Models/userAcceptance_model.zip");
+    }
+    userAcceptanceService.LoadModel("Models/userAcceptance_model.zip");
+    ridePriceService.LoadModels("Models/price_model.zip");
     Console.WriteLine("ML models initialized successfully");
 }
 catch (Exception ex)

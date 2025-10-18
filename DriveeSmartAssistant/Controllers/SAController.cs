@@ -1,5 +1,6 @@
 ﻿using DriveeSmartAssistant.Interfaces;
 using DriveeSmartAssistant.Models;
+using DriveeSmartAssistant.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,11 +10,11 @@ namespace DriveeSmartAssistant.Controllers
     [ApiController]
     public class SAController : ControllerBase
     {
-        IRidePriceService _ridePriceService;
+        IMainHandleService _mainHandleService;
         ILogger<SAController> _logger;
-        public SAController(IRidePriceService ridePriceService, ILogger<SAController> logger)
+        public SAController(IMainHandleService mainHandleService, ILogger<SAController> logger)
         {
-            _ridePriceService = ridePriceService;
+            _mainHandleService = mainHandleService;
             _logger = logger;
         }
 
@@ -22,33 +23,8 @@ namespace DriveeSmartAssistant.Controllers
         {
             try
             {
-                if (!_ridePriceService.IsModelLoaded)
-                {
-                    return StatusCode(503, new ErrorResponse
-                    {
-                        Error = "Service Unavailable",
-                        Details = "ML model is not loaded",
-                        Timestamp = DateTime.UtcNow
-                    });
-                }
 
-                var input = new PricePredictionInput
-                {
-                    DistanceInMeters = request.DistanceInMeters,
-                    DurationInSeconds = request.DurationInSeconds,
-                    DriverRating = request.DriverRating,
-                    PickupInMeters = request.PickupInMeters,
-                    DriverExperienceDays = request.DriverExperienceMonth,
-                    TimeOfDay = GetTimeOfDay(request.TimeOfDay),
-                    CarName = request.CarName,
-                    Platform = request.Platform,
-                    DayOfWeek = ((float)request.TimeOfDay.DayOfWeek),
-                    HourOfDay = (float)request.TimeOfDay.Hour,
-                    Month = (float)request.TimeOfDay.Month
-
-                };
-
-                var recommendedPrice = _ridePriceService.GetRecommendedPrice(input);
+                var recommendedPrice = _mainHandleService.GetRecommendedPrice(request);
 
                 _logger.LogInformation($"Price recommendation generated: {recommendedPrice} for distance {request.DistanceInMeters}m");
 
@@ -70,70 +46,22 @@ namespace DriveeSmartAssistant.Controllers
             }
         }
 
-        [HttpPost("acceptance-probability")]
-        public ActionResult<AcceptanceProbabilityResponse> GetAcceptanceProbability([FromBody] AcceptanceProbabilityRequest request)
+        [HttpPost("predict")]
+        public ActionResult<PredictAcceptanceResponse> PredictAcceptance([FromBody] UserAcceptanceRequest request)
         {
             try
             {
-                if (!_ridePriceService.IsModelLoaded)
+
+                var userAcceptPercent = _mainHandleService.GetUserAcceptance(request);
+
+                return Ok(new
                 {
-                    return StatusCode(503, new ErrorResponse
-                    {
-                        Error = "Service Unavailable",
-                        Details = "ML model is not loaded",
-                        Timestamp = DateTime.UtcNow
-                    });
-                }
-
-                UserAcceptanceInput userInput = new()
-                {
-                    CarName = request.CarName,
-                    DurationInSeconds = request.DurationInSeconds,
-                    DayOfWeek = (float)request.TimeOfDay.DayOfWeek,
-                    DistanceInMeters = request.DistanceInMeters,
-                    DriverExperienceMonth = request.DriverExperienceMonth,
-                    DriverPrice = request.DriverPrice,
-                    DriverRating = request.DriverRating,
-                    HourOfDay = request.TimeOfDay.Hour,
-                    Month = request.TimeOfDay.Month,
-                    PickupInMeters = request.PickupInMeters,
-                    Platform = request.Platform,
-                    UserMaxPrice = request.UserPrice
-                };
-                var userAcceptanceProbability = _ridePriceService.GetUserAcceptanceProbability(userInput);
-
-                DriverAcceptanceInput driverInput = new()
-                {
-                    CarName = request.CarName,
-                    DurationInSeconds = request.DurationInSeconds,
-                    DayOfWeek = (float)request.TimeOfDay.DayOfWeek,
-                    DistanceInMeters = request.DistanceInMeters,
-                    DriverExperienceMonth = request.DriverExperienceMonth,
-                    DriverMinPrice = request.DriverPrice,
-                    DriverRating = request.DriverRating,
-                    HourOfDay = request.TimeOfDay.Hour,
-                    Month = request.TimeOfDay.Month,
-                    PickupInMeters = request.PickupInMeters,
-                    Platform = request.Platform,
-                    UserPrice = request.UserPrice
-                };
-                var driverAcceptanceProbability = _ridePriceService.GetDriverAcceptanceProbability(driverInput);
-
-
-                _logger.LogInformation($"Acceptance probabilities calculated - Driver: {driverAcceptanceProbability:P2}, User: {userAcceptanceProbability:P2}");
-
-                return Ok(new AcceptanceProbabilityResponse
-                {
-                    UserPrice = request.UserPrice,
-                    DriverPrice = request.DriverPrice,
-                    UserAcceptanceProbability = userAcceptanceProbability,
-                    DriverAcceptanceProbability = driverAcceptanceProbability,
-                    Timestamp = DateTime.UtcNow
+                    userAcceptPercent
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error calculating acceptance probability");
+                _logger.LogError(ex, "Error generating price recommendation");
                 return StatusCode(500, new ErrorResponse
                 {
                     Error = "Internal Server Error",
@@ -142,26 +70,15 @@ namespace DriveeSmartAssistant.Controllers
                 });
             }
         }
-
-        [HttpGet("health")]
-        public ActionResult HealthCheck()
+        
+        public class PredictAcceptanceResponse
         {
-            var status = new
-            {
-                Status = _ridePriceService.IsModelLoaded ? "Healthy" : "Unhealthy",
-                ModelLoaded = _ridePriceService.IsModelLoaded,
-                Timestamp = DateTime.UtcNow
-            };
+            public float AcceptanceProbability { get; set; }
+            public float UserMaxPrice { get; set; }
+            public float DriverPrice { get; set; }
+            public float PriceRatio { get; set; }
+            public DateTime Timestamp { get; set; }
+        }
 
-            return _ridePriceService.IsModelLoaded ? Ok(status) : StatusCode(503, status);
-        }
-        private string GetTimeOfDay(DateTime timestamp)
-        {
-            var hour = timestamp.Hour;
-            if (hour >= 6 && hour < 12) return "Morning";
-            if (hour >= 12 && hour < 18) return "Afternoon";
-            if (hour >= 18 && hour < 24) return "Evening";
-            return "Night";
-        }
     }
 }
