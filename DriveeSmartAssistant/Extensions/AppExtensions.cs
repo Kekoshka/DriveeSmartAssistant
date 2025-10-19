@@ -45,6 +45,8 @@ namespace DriveeSmartAssistant.Extensions
             builder.Services.AddSingleton<IRidePriceService, RidePriceService>();
             builder.Services.AddSingleton<IUserAcceptanceService, UserAcceptanceService>();
             builder.Services.AddTransient<IMainHandleService, MainHandleService>();
+            builder.Services.AddSingleton<IOrderCompletionService, OrderCompletionService>();
+
         }
         public static void ConfigureOptions(this WebApplicationBuilder builder)
         {
