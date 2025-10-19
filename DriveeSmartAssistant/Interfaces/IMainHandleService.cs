@@ -1,5 +1,4 @@
-﻿
-using DriveeSmartAssistant.Classes.Requests;
+﻿using DriveeSmartAssistant.Models.Requests;
 
 namespace DriveeSmartAssistant.Interfaces
 {

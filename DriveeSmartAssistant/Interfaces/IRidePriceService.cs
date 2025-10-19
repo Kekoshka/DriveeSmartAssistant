@@ -1,4 +1,4 @@
-﻿using DriveeSmartAssistant.Classes.Inputs;
+﻿using DriveeSmartAssistant.Models.Inputs;
 
 namespace DriveeSmartAssistant.Interfaces
 {

@@ -1,16 +1,12 @@
 ﻿using DriveeSmartAssistant.Interfaces;
-using DriveeSmartAssistant.Classes.Inputs;
-using DriveeSmartAssistant.Classes.Predictions;
 using Microsoft.ML;
-using Microsoft.ML.Data;
 using Microsoft.ML.Trainers.LightGbm;
-using System;
-using System.IO;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using DriveeSmartAssistant.Models.Pipelines.Options;
 using Microsoft.Extensions.Options;
-using DriveeSmartAssistant.Models.Pipelines.Configs;
+using DriveeSmartAssistant.Models.Inputs;
+using DriveeSmartAssistant.Models.Predictions;
+using DriveeSmartAssistant.Common.Configs;
+using DriveeSmartAssistant.Common.Options;
+using Mapster;
 
 namespace DriveeSmartAssistant.Services;
 public class RidePriceService : IRidePriceService
@@ -36,62 +32,44 @@ public class RidePriceService : IRidePriceService
 
     public void TrainModels(string csvFilePath)
     {
-        try
-        {
-            _logger.LogInformation($"Начинаем загрузку данных из: {csvFilePath}");
-
             if (!File.Exists(csvFilePath))
             {
                 throw new FileNotFoundException($"CSV файл не найден: {csvFilePath}");
             }
 
-            // Загружаем и обрабатываем данные
             var processedData = LoadAndProcessData(csvFilePath);
-            _logger.LogInformation($"Всего загружено поездок: {processedData.Count}");
 
             var successfulRides = processedData.Where(r => r.IsDone).ToList();
             var allRides = processedData;
-
-            _logger.LogInformation($"Успешных заказов: {successfulRides.Count}");
-            _logger.LogInformation($"Всего заказов: {allRides.Count}");
 
             if (successfulRides.Count == 0)
             {
                 throw new InvalidOperationException("Нет успешных заказов для обучения модели цены");
             }
 
-            // Создаем отдельные datasets
             var successfulDataView = _mlContext.Data.LoadFromEnumerable(successfulRides);
             var allDataView = _mlContext.Data.LoadFromEnumerable(allRides);
 
-            // Фильтруем аномальные цены
             var validSuccessfulRides = successfulRides.Where(r =>
                 r.PriceBidLocal >= 50 &&
-                r.PriceBidLocal <= 2000 && // Максимальная реалистичная цена
+                r.PriceBidLocal <= 3000 && 
                 r.DistanceInMeters > 0 &&
                 r.DurationInSeconds > 0
             ).ToList();
-
-            _logger.LogInformation($"После фильтрации аномалий: {validSuccessfulRides.Count} успешных заказов");
 
             if (validSuccessfulRides.Count == 0)
             {
                 throw new InvalidOperationException("Нет валидных успешных заказов для обучения");
             }
 
-            _logger.LogInformation("Обучаем модель цены...");
             var pricePipeline = RidePriceConfig.CreatePricePipeline(_mlContext, _options);
             _priceModel = pricePipeline.Fit(successfulDataView);
             _logger.LogInformation("Модель цены обучена");
 
-            // 2. Модель принятия пассажиром
-            _logger.LogInformation("Обучаем модель принятия пассажиром...");
             var userAcceptancePipeline = RidePriceConfig.CreateUserAcceptancePipeline(_mlContext, _options);
             _userAcceptanceModel = userAcceptancePipeline.Fit(allDataView);
             _logger.LogInformation("Модель принятия пассажиром обучена");
 
-            // 3. Модель принятия водителем
-            _logger.LogInformation("Обучаем модель принятия водителем...");
             var driverAcceptancePipeline = RidePriceConfig.CreateDriverAcceptancePipeline(_mlContext, _options);
             _driverAcceptanceModel = driverAcceptancePipeline.Fit(allDataView);
             _logger.LogInformation("Модель принятия водителем обучена");
@@ -100,89 +78,6 @@ public class RidePriceService : IRidePriceService
             _userAcceptanceEngine = _mlContext.Model.CreatePredictionEngine<ModelInput, AcceptancePrediction>(_userAcceptanceModel);
             _driverAcceptanceEngine = _mlContext.Model.CreatePredictionEngine<ModelInput, AcceptancePrediction>(_driverAcceptanceModel);
             _logger.LogInformation("Все модели успешно обучены");
-
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ошибка при обучении моделей");
-            throw;
-        }
-    }
-
-    private IEstimator<ITransformer> CreateUserAcceptancePipeline()
-    {
-        return _mlContext.Transforms.Categorical.OneHotEncoding("PlatformEncoded", nameof(ModelInput.Platform))
-            .Append(_mlContext.Transforms.Categorical.OneHotEncoding("CarNameEncoded", nameof(ModelInput.CarName)))
-            .Append(_mlContext.Transforms.Concatenate("Features",
-                // Параметры поездки
-                nameof(ModelInput.DistanceInMeters),
-                nameof(ModelInput.DurationInSeconds),
-                nameof(ModelInput.DriverRating),
-                nameof(ModelInput.PickupInMeters),
-                nameof(ModelInput.DriverExperienceMonth),
-
-                // Временные параметры
-                nameof(ModelInput.HourOfDay),
-                nameof(ModelInput.DayOfWeek),
-                nameof(ModelInput.IsWeekend),
-                nameof(ModelInput.IsPeakHour),
-
-                // Ценовые параметры (фокус на отношение цены водителя к ожиданиям пользователя)
-                nameof(ModelInput.PriceBidLocal),      // Цена водителя
-                nameof(ModelInput.PriceStartLocal),    // Ожидания пользователя
-                nameof(ModelInput.PriceRatio),         // Отношение цен
-                nameof(ModelInput.PriceDifference),    // Разница цен
-
-                // Категориальные признаки
-                "PlatformEncoded",
-                "CarNameEncoded"
-            ))
-            .Append(_mlContext.Transforms.NormalizeMinMax("Features"))
-            .Append(_mlContext.Transforms.CopyColumns("Label", nameof(ModelInput.UserAccepted)))
-            .Append(_mlContext.BinaryClassification.Trainers.LightGbm(new LightGbmBinaryTrainer.Options
-            {
-                NumberOfIterations = 100,
-                LearningRate = 0.1,
-                NumberOfLeaves = 20
-            }));
-    }
-
-    private IEstimator<ITransformer> CreateDriverAcceptancePipeline()
-    {
-        return _mlContext.Transforms.Categorical.OneHotEncoding("PlatformEncoded", nameof(ModelInput.Platform))
-            .Append(_mlContext.Transforms.Categorical.OneHotEncoding("CarNameEncoded", nameof(ModelInput.CarName)))
-            .Append(_mlContext.Transforms.Concatenate("Features",
-                // Параметры поездки
-                nameof(ModelInput.DistanceInMeters),
-                nameof(ModelInput.DurationInSeconds),
-                nameof(ModelInput.DriverRating),
-                nameof(ModelInput.PickupInMeters),
-                nameof(ModelInput.DriverExperienceMonth),
-
-                // Временные параметры
-                nameof(ModelInput.HourOfDay),
-                nameof(ModelInput.DayOfWeek),
-                nameof(ModelInput.IsWeekend),
-                nameof(ModelInput.IsPeakHour),
-
-                // Ценовые параметры (фокус на выгодность поездки для водителя)
-                nameof(ModelInput.PriceBidLocal),      // Предлагаемая цена
-                nameof(ModelInput.PriceStartLocal),    // Минимальная приемлемая цена
-                nameof(ModelInput.PriceRatio),         // Отношение к минимальной цене
-                nameof(ModelInput.PriceDifference),    // Надбавка
-
-                // Категориальные признаки
-                "PlatformEncoded",
-                "CarNameEncoded"
-            ))
-            .Append(_mlContext.Transforms.NormalizeMinMax("Features"))
-            .Append(_mlContext.Transforms.CopyColumns("Label", nameof(ModelInput.DriverAccepted)))
-            .Append(_mlContext.BinaryClassification.Trainers.LightGbm(new LightGbmBinaryTrainer.Options
-            {
-                NumberOfIterations = 100,
-                LearningRate = 0.1,
-                NumberOfLeaves = 20
-            }));
     }
 
     private List<ModelInput> LoadAndProcessData(string csvFilePath)
@@ -248,21 +143,6 @@ public class RidePriceService : IRidePriceService
         return processedRides;
     }
 
-    private string GetTimeOfDay(DateTime timestamp)
-    {
-        var hour = timestamp.Hour;
-        if (hour >= 6 && hour < 12) return "Morning";
-        if (hour >= 12 && hour < 18) return "Afternoon";
-        if (hour >= 18 && hour < 24) return "Evening";
-        return "Night";
-    }
-
-    private bool IsWeekend(DateTime timestamp)
-    {
-        return timestamp.DayOfWeek == DayOfWeek.Saturday ||
-               timestamp.DayOfWeek == DayOfWeek.Sunday;
-    }
-
     private float ConvertDriverRating(string ratingString)
     {
         if (string.IsNullOrEmpty(ratingString)) return 5.0f;
@@ -283,23 +163,8 @@ public class RidePriceService : IRidePriceService
     {
         if (!IsModelLoaded) throw new InvalidOperationException("Модель не загружена");
 
-        // Создаем входные данные для модели
-        var modelInput = new ModelInput
-        {
-            DistanceInMeters = input.DistanceInMeters,
-            DurationInSeconds = input.DurationInSeconds,
-            DriverRating = input.DriverRating,
-            PickupInMeters = input.PickupInMeters,
-            DriverExperienceMonth = input.DriverExperienceDays,
-            TimeOfDay = input.TimeOfDay,
-            Platform = input.Platform,
-            CarName = input.CarName,
-
-            // ВАЖНО: передаем временные признаки!
-            HourOfDay = input.HourOfDay,
-            DayOfWeek = input.DayOfWeek,
-            Month = input.Month,
-        };
+        var modelInput = input.Adapt<ModelInput>();
+        modelInput.DriverExperienceMonth = input.DriverExperienceDays;
 
         var predictionEngine = _mlContext.Model.CreatePredictionEngine<ModelInput, RecommendedPricePrediction>(_priceModel);
         var result = predictionEngine.Predict(modelInput);
@@ -310,11 +175,8 @@ public class RidePriceService : IRidePriceService
     {
         Directory.CreateDirectory(Path.GetDirectoryName(priceModelPath));
 
-        // Создаем временные данные для схемы
         var tempData = _mlContext.Data.LoadFromEnumerable(new[] { new ModelInput() });
-
         _mlContext.Model.Save(_priceModel, tempData.Schema, priceModelPath);
-
         _logger.LogInformation("Модели сохранены");
     }
 
@@ -326,11 +188,7 @@ public class RidePriceService : IRidePriceService
         }
 
         var tempData = _mlContext.Data.LoadFromEnumerable(new[] { new ModelInput() });
-
         _priceModel = _mlContext.Model.Load(priceModelPath, out var priceSchema);
-
-        // Создаем PredictionEngine для загруженной модели
-
         _logger.LogInformation("Модели загружены из файлов");
     }
 }

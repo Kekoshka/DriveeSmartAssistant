@@ -1,9 +1,9 @@
 ﻿using DriveeSmartAssistant.Interfaces;
-using DriveeSmartAssistant.Classes.Responses;
-using DriveeSmartAssistant.Classes.Requests;
 using DriveeSmartAssistant.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using DriveeSmartAssistant.Models.Requests;
+using DriveeSmartAssistant.Models.Responses;
 
 namespace DriveeSmartAssistant.Controllers
 {

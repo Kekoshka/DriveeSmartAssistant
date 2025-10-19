@@ -1,4 +1,4 @@
-﻿using DriveeSmartAssistant.Classes.Inputs;
+﻿using DriveeSmartAssistant.Models.Inputs;
 using Microsoft.ML;
 using Microsoft.ML.Trainers.LightGbm;
 using System.Globalization;

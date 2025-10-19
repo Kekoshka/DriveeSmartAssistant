@@ -1,8 +1,8 @@
 ﻿using DriveeSmartAssistant.Extensions;
 using DriveeSmartAssistant.Interfaces;
-using DriveeSmartAssistant.Classes.Inputs;
-using DriveeSmartAssistant.Classes.Requests;
 using Mapster;
+using DriveeSmartAssistant.Models.Inputs;
+using DriveeSmartAssistant.Models.Requests;
 
 namespace DriveeSmartAssistant.Services
 {
@@ -20,6 +20,7 @@ namespace DriveeSmartAssistant.Services
 
         public float GetUserAcceptance(UserAcceptanceRequest request)
         {
+            var userPrice = request.UserMaxPrice;
             var driverPrice = request.DriverPrice;
             var priceRecReqest = request.Adapt<PriceRecommendationRequest>();
             var recommendedPrice = GetRecommendedPrice(priceRecReqest);
@@ -37,6 +38,8 @@ namespace DriveeSmartAssistant.Services
             var multiplyCoeff = 1 / (maxPercent - minPercent);
             var normalPercent = basePercent * multiplyCoeff;
 
+            if (driverPrice <= userPrice) return 1;
+            if (normalPercent >= 1) return 1;
             return normalPercent;
         }
 
